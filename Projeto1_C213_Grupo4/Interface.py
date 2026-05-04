@@ -2,10 +2,11 @@ import sys
 import numpy as np
 import scipy.io
 import control as ctrl
+import mplcursors
 
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QTabWidget,
-    QLabel, QPushButton, QFileDialog, QComboBox, QLineEdit, QTextEdit
+    QLabel, QPushButton, QFileDialog, QComboBox, QLineEdit
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -16,26 +17,27 @@ class Interface(QWidget):
     def __init__(self):
         super().__init__()
 
-        # Dados
+        # ================= DADOS =================
         self.t = None
         self.u = None
         self.y = None
 
-        # Sistema
+        # ================= PARÂMETROS DO SISTEMA =================
         self.k = None
         self.tau = None
         self.theta = None
+        self.ess_open = None
 
-        # Escala forno
         self.T_max = 100
 
+        # ================= CONFIG JANELA =================
         self.setWindowTitle("Controle de Forno - PID C213")
         self.setGeometry(100, 100, 1100, 650)
 
         layout = QVBoxLayout()
 
+        # ================= ABAS =================
         self.tabs = QTabWidget()
-
         self.tab_id = QWidget()
         self.tab_pid = QWidget()
         self.tab_comp = QWidget()
@@ -47,17 +49,21 @@ class Interface(QWidget):
         layout.addWidget(self.tabs)
         self.setLayout(layout)
 
+        # Inicialização das abas
         self.init_identificacao()
         self.init_pid()
         self.init_comparacao()
 
     # ================= IDENTIFICAÇÃO =================
     def init_identificacao(self):
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # ===== TOPO (BOTÕES) =====
+        # Título
+        titulo = QLabel("Controle de temperatura para forno")
+        titulo.setStyleSheet("font-size:18px; font-weight:bold;")
+
+        # Botões superiores
         top = QHBoxLayout()
-
         self.btn_load = QPushButton("Carregar Dataset")
         self.btn_id = QPushButton("Identificar Sistema")
 
@@ -67,24 +73,39 @@ class Interface(QWidget):
         top.addWidget(self.btn_load)
         top.addWidget(self.btn_id)
 
-        # ===== STATUS =====
+        # Área principal
+        content = QHBoxLayout()
+
+        # Gráfico do dataset
+        self.fig_data = Figure()
+        self.canvas_data = FigureCanvas(self.fig_data)
+        content.addWidget(self.canvas_data, 3)
+
+        # Painel lateral com parâmetros
+        painel = QVBoxLayout()
+        painel.addWidget(QLabel("Identificação do Sistema"))
+
+        self.k_label = QLabel("k: -")
+        self.tau_label = QLabel("τ: -")
+        self.theta_label = QLabel("θ: -")
+        self.ess_label = QLabel("ESS: -")
+
+        for w in [self.k_label, self.tau_label, self.theta_label, self.ess_label]:
+            w.setStyleSheet("font-size:14px; padding:6px; border:1px solid gray;")
+            painel.addWidget(w)
+
+        painel.addStretch()
+        content.addLayout(painel, 1)
+
         self.label_status = QLabel("Status: aguardando dataset")
 
-        # ===== DADOS =====
-        self.data_view = QTextEdit()
-        self.data_view.setReadOnly(True)
+        # Montagem final
+        main_layout.addWidget(titulo)
+        main_layout.addLayout(top)
+        main_layout.addWidget(self.label_status)
+        main_layout.addLayout(content)
 
-        # ===== RESULTADO =====
-        self.result_view = QLabel("Resultado da identificação aparecerá aqui")
-
-        layout.addLayout(top)
-        layout.addWidget(self.label_status)
-        layout.addWidget(QLabel("Dados do Dataset:"))
-        layout.addWidget(self.data_view)
-        layout.addWidget(QLabel("Identificação:"))
-        layout.addWidget(self.result_view)
-
-        self.tab_id.setLayout(layout)
+        self.tab_id.setLayout(main_layout)
 
     def load_data(self):
         file, _ = QFileDialog.getOpenFileName(self, "Selecionar dataset", "", "*.mat")
@@ -92,24 +113,39 @@ class Interface(QWidget):
         if file:
             data = scipy.io.loadmat(file)
 
+            # Carrega dados
             self.t = data['tiempo'].flatten()
             self.u = data['entrada'].flatten()
             self.y = data['salida'].flatten()
 
             self.label_status.setText("Status: Dataset carregado")
 
-            # mostrar dados (resumo)
-            preview = "t: " + str(self.t[:10]) + "\n\n"
-            preview += "u: " + str(self.u[:10]) + "\n\n"
-            preview += "y: " + str(self.y[:10])
+            # Plot dos dados
+            self.fig_data.clear()
 
-            self.data_view.setText(preview)
+            ax1 = self.fig_data.add_subplot(211)
+            ax2 = self.fig_data.add_subplot(212)
+
+            ax1.plot(self.t, self.u, color='blue')
+            ax2.plot(self.t, self.y, color='red')
+
+            ax1.set_title("Entrada (Potência %)")
+            ax1.set_ylabel("%")
+            ax1.grid()
+
+            ax2.set_title("Saída (Temperatura °C)")
+            ax2.set_xlabel("Tempo (s)")
+            ax2.set_ylabel("°C")
+            ax2.grid()
+
+            self.fig_data.tight_layout()
+            self.canvas_data.draw()
 
     def identify(self):
         if self.y is None:
-            self.result_view.setText("Carregue o dataset primeiro!")
             return
 
+        # Cálculo dos parâmetros
         self.k = (self.y[-1] - self.y[0]) / (self.u[-1] - self.u[0])
 
         dy = np.diff(self.y)
@@ -118,9 +154,14 @@ class Interface(QWidget):
         y63 = self.y[0] + 0.63 * (self.y[-1] - self.y[0])
         self.tau = self.t[np.where(self.y >= y63)[0][0]] - self.theta
 
-        self.result_view.setText(
-            f"k = {self.k:.3f} | θ = {self.theta:.2f} | τ = {self.tau:.2f}"
-        )
+        # Erro em regime permanente (malha aberta)
+        self.ess_open = abs(self.y[-1] - self.y[0])
+
+        # Atualiza interface
+        self.k_label.setText(f"k: {self.k:.3f}")
+        self.tau_label.setText(f"τ: {self.tau:.2f}s")
+        self.theta_label.setText(f"θ: {self.theta:.2f}s")
+        self.ess_label.setText(f"ESS: {self.ess_open:.2f}°C")
 
     # ================= PID =================
     def init_pid(self):
@@ -129,10 +170,12 @@ class Interface(QWidget):
         left = QVBoxLayout()
         right = QVBoxLayout()
 
+        # Gráfico PID
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         left.addWidget(self.canvas)
 
+        # Controles
         self.combo_method = QComboBox()
         self.combo_method.addItems(["Ziegler-Nichols", "Cohen-Coon"])
 
@@ -149,35 +192,36 @@ class Interface(QWidget):
         btn = QPushButton("Simular")
         btn.clicked.connect(self.simulate)
 
-        self.label_result = QLabel("Resultados")
+        # Botão exportar gráfico
+        self.btn_export = QPushButton("Exportar Gráfico")
+        self.btn_export.clicked.connect(self.export_graph)
 
-        right.addWidget(QLabel("Método"))
-        right.addWidget(self.combo_method)
+        self.label_result = QLabel("Painel de Métricas")
 
-        right.addWidget(QLabel("Modo"))
-        right.addWidget(self.combo_mode)
-
-        right.addWidget(QLabel("Kp"))
-        right.addWidget(self.kp)
-
-        right.addWidget(QLabel("Ti"))
-        right.addWidget(self.ti)
-
-        right.addWidget(QLabel("Td"))
-        right.addWidget(self.td)
-
-        right.addWidget(QLabel("Setpoint (°C)"))
-        right.addWidget(self.sp)
-
-        right.addWidget(btn)
-        right.addWidget(self.label_result)
+        # Layout lateral
+        for w in [
+            QLabel("Método"), self.combo_method,
+            QLabel("Modo"), self.combo_mode,
+            QLabel("Kp"), self.kp,
+            QLabel("Ti"), self.ti,
+            QLabel("Td"), self.td,
+            QLabel("Setpoint (°C)"), self.sp,
+            btn,
+            self.btn_export,
+            self.label_result
+        ]:
+            right.addWidget(w)
 
         layout.addLayout(left, 2)
         layout.addLayout(right, 1)
 
         self.tab_pid.setLayout(layout)
-
         self.toggle_manual()
+
+    def export_graph(self):
+        file, _ = QFileDialog.getSaveFileName(self, "Salvar gráfico", "", "PNG (*.png)")
+        if file:
+            self.figure.savefig(file)
 
     def toggle_manual(self):
         manual = self.combo_mode.currentText() == "Manual"
@@ -191,7 +235,9 @@ class Interface(QWidget):
 
         method = self.combo_method.currentText()
         mode = self.combo_mode.currentText()
+        sp = float(self.sp.text())
 
+        # Sintonia PID
         if mode == "Automático":
             if method == "Ziegler-Nichols":
                 Kp = (1.2 * self.tau) / (self.k * self.theta)
@@ -207,44 +253,77 @@ class Interface(QWidget):
             Ti = float(self.ti.text())
             Td = float(self.td.text())
 
+        # Planta
         G = ctrl.TransferFunction([self.k], [self.tau, 1])
         num, den = ctrl.pade(self.theta, 1)
         plant = G * ctrl.TransferFunction(num, den)
 
+        # Controlador
         C = ctrl.TransferFunction([Kp*Td, Kp, Kp/Ti], [1, 0])
         T = ctrl.feedback(C * plant, 1)
 
         t, y = ctrl.step_response(T)
-
-        temp = y * self.T_max
-        sp = float(self.sp.text())
-
-        self.figure.clear()
-        ax = self.figure.add_subplot(111)
-
-        ax.plot(t, temp, label="Temperatura (°C)")
-        ax.axhline(sp, linestyle="--", label="Setpoint")
-
-        ax.set_title("Forno Industrial")
-        ax.set_xlabel("Tempo")
-        ax.set_ylabel("Temperatura (°C)")
-        ax.grid()
-        ax.legend()
-
-        self.canvas.draw()
+        temp = y * sp
 
         info = ctrl.step_info(T)
 
+        # Plot
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+
+        ax.plot(t, temp, label="Temperatura")
+        ax.axhline(sp, linestyle="--", label="Setpoint")
+
+        # Marcadores importantes
+        peak = np.max(temp)
+        t_peak = t[np.argmax(temp)]
+        ax.plot(t_peak, peak, 'ro')
+        ax.annotate("Pico", (t_peak, peak), xytext=(0, 10),
+                    textcoords="offset points", ha='center')
+
+        if info['RiseTime']:
+            tr = info['RiseTime']
+            idx_tr = np.where(t >= tr)[0][0]
+            y_tr = temp[idx_tr]
+            ax.plot(tr, y_tr, 'go')
+            ax.annotate("Tr", (tr, y_tr), xytext=(0, 10),
+                        textcoords="offset points", ha='center')
+
+        if info['SettlingTime']:
+            ts = info['SettlingTime']
+            idx_ts = np.where(t >= ts)[0][0]
+            y_ts = temp[idx_ts]
+            ax.plot(ts, y_ts, 'mo')
+            ax.annotate("Ts", (ts, y_ts), xytext=(0, 10),
+                        textcoords="offset points", ha='center')
+
+        # Cursor interativo
+        cursor = mplcursors.cursor(ax.lines, hover=True)
+
+        @cursor.connect("add")
+        def on_add(sel):
+            x, y = sel.target
+            sel.annotation.set_text(f"{x:.2f}s\n{y:.2f}°C")
+
+        ax.set_xlabel("Tempo (s)")
+        ax.set_ylabel("Temperatura (°C)")
+        ax.legend()
+        ax.grid()
+
+        self.canvas.draw()
+
+        # Métricas
         self.label_result.setText(
-            f"Kp={Kp:.2f} Ti={Ti:.2f} Td={Td:.2f}\n"
-            f"Tr={info['RiseTime']:.2f}s Ts={info['SettlingTime']:.2f}s Mp={info['Overshoot']:.2f}%"
+            f"tr: {info['RiseTime']:.2f}s\n"
+            f"ts: {info['SettlingTime']:.2f}s\n"
+            f"Mp: {info['Overshoot']:.2f}%"
         )
 
     # ================= COMPARAÇÃO =================
     def init_comparacao(self):
         layout = QVBoxLayout()
 
-        self.btn = QPushButton("Comparar ZN vs CC")
+        self.btn = QPushButton("Comparar")
         self.btn.clicked.connect(self.compare)
 
         self.fig2 = Figure()
@@ -259,20 +338,28 @@ class Interface(QWidget):
         if self.k is None:
             return
 
+        sp = float(self.sp.text())
+
         R = self.theta / self.tau
 
+        # Parâmetros ZN
         Kp1 = (1.2 * self.tau) / (self.k * self.theta)
         Ti1 = 2 * self.theta
         Td1 = 0.5 * self.theta
 
+        # Parâmetros CC
         Kp2 = (1/self.k) * ((4/3 + R/4) * (self.tau/self.theta))
         Ti2 = self.theta * (32 + 6*R) / (13 + 8*R)
         Td2 = self.theta * (4 / (11 + 2*R))
 
+        G = ctrl.TransferFunction([self.k], [self.tau, 1])
+        num, den = ctrl.pade(self.theta, 1)
+        plant = G * ctrl.TransferFunction(num, den)
+
+        # Malha aberta
+        t_open, y_open = ctrl.step_response(plant)
+
         def sim(Kp, Ti, Td):
-            G = ctrl.TransferFunction([self.k], [self.tau, 1])
-            num, den = ctrl.pade(self.theta, 1)
-            plant = G * ctrl.TransferFunction(num, den)
             C = ctrl.TransferFunction([Kp*Td, Kp, Kp/Ti], [1, 0])
             T = ctrl.feedback(C * plant, 1)
             return ctrl.step_response(T)
@@ -283,12 +370,13 @@ class Interface(QWidget):
         self.fig2.clear()
         ax = self.fig2.add_subplot(111)
 
-        ax.plot(t1, y1 * self.T_max, label="ZN")
-        ax.plot(t2, y2 * self.T_max, label="CC")
+        ax.plot(t_open, y_open * sp, '--', label="Malha Aberta")
+        ax.plot(t1, y1 * sp, label="ZN")
+        ax.plot(t2, y2 * sp, label="CC")
+        ax.axhline(sp, linestyle="--", label="Setpoint")
 
-        ax.set_title("Comparação Forno")
+        ax.set_xlabel("Tempo (s)")
         ax.set_ylabel("Temperatura (°C)")
-        ax.set_xlabel("Tempo")
         ax.legend()
         ax.grid()
 
