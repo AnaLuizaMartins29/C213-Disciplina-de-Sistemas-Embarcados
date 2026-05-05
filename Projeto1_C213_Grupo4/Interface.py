@@ -17,12 +17,12 @@ class Interface(QWidget):
     def __init__(self):
         super().__init__()
 
-        # ================= DADOS =================
+        # DADOS
         self.t = None
         self.u = None
         self.y = None
 
-        # ================= PARÂMETROS DO SISTEMA =================
+        # PARÂMETROS DO SISTEMA
         self.k = None
         self.tau = None
         self.theta = None
@@ -30,13 +30,13 @@ class Interface(QWidget):
 
         self.T_max = 100
 
-        # ================= CONFIG JANELA =================
+        # CONFIGURAÇÕES DA JANELA
         self.setWindowTitle("Controle de Forno - PID C213")
         self.setGeometry(100, 100, 1100, 650)
 
         layout = QVBoxLayout()
 
-        # ================= ABAS =================
+        # ABAS
         self.tabs = QTabWidget()
         self.tab_id = QWidget()
         self.tab_pid = QWidget()
@@ -54,7 +54,7 @@ class Interface(QWidget):
         self.init_pid()
         self.init_comparacao()
 
-    # ================= IDENTIFICAÇÃO =================
+    # IDENTIFICAÇÃO
     def init_identificacao(self):
         main_layout = QVBoxLayout()
 
@@ -163,7 +163,7 @@ class Interface(QWidget):
         self.theta_label.setText(f"θ: {self.theta:.2f}s")
         self.ess_label.setText(f"ESS: {self.ess_open:.2f}°C")
 
-    # ================= PID =================
+    # PID
     def init_pid(self):
         layout = QHBoxLayout()
 
@@ -319,7 +319,7 @@ class Interface(QWidget):
             f"Mp: {info['Overshoot']:.2f}%"
         )
 
-    # ================= COMPARAÇÃO =================
+    # COMPARAÇÃO
     def init_comparacao(self):
         layout = QVBoxLayout()
 

@@ -36,7 +36,7 @@ theta = t[indice_theta]
 print("theta =", theta)
 
 
-# Encontratando Tau (τ)
+# Encontrando Tau (τ)
 y_final = y[-1]
 y_inicial = y[0]
 y_63 = y_inicial + 0.63 * (y_final - y_inicial)
@@ -46,7 +46,7 @@ t_tau = t[indice_tau]
 tau = t_tau - theta
 print("tau =", tau)
 
-#valores encontrados 
+#valores encontrados com base no DataSet
 #k = 0.9477
 #θ = 7
 #τ = 23
